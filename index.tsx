@@ -87,7 +87,6 @@ const Header = () => (
         </svg>
         <span className="text-xl font-bold tracking-tight">UBC Event Scout</span>
       </div>
-      <div className="text-sm font-medium text-yellow-400">Beta</div>
     </div>
   </header>
 );
@@ -141,28 +140,49 @@ const Hero = ({ onSearch, loading }: { onSearch: (query: string) => void, loadin
 };
 
 const EventCard: React.FC<{ event: EventData }> = ({ event }) => {
-  // Extract day and month for the date badge
   let day = "—";
   let month = "—";
   let isDateValid = false;
+  let daysUntil = 0;
   
-  if (event.date && event.date.toLowerCase() !== "check instagram" && event.date.toLowerCase() !== "tbd") {
-     const dateObj = new Date(event.date);
-     if (!isNaN(dateObj.getTime())) {
-        day = dateObj.getDate().toString();
-        month = dateObj.toLocaleString('default', { month: 'short' }).toUpperCase();
-        isDateValid = true;
-     } else {
-        // Fallback parsing for fuzzy dates returned by AI
-        const parts = event.date.split(' ');
-        if (parts.length > 0) {
-            const possibleMonth = parts[0].substring(0, 3).toUpperCase();
-            if (['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'].includes(possibleMonth)) {
-                month = possibleMonth;
-                day = parts[1] ? parts[1].replace(',', '') : day;
-                isDateValid = true;
+  const parseDate = (dateStr: string) => {
+    // Attempt standard parse
+    let date = new Date(dateStr);
+    if (!isNaN(date.getTime())) return date;
+    
+    // Fallback parse for "Month Day" format
+    const parts = dateStr.split(' ');
+    if (parts.length >= 2) {
+        const monthStr = parts[0].substring(0, 3).toUpperCase();
+        const dayStr = parts[1].replace(/[^0-9]/g, '');
+        const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const monthIdx = months.indexOf(monthStr);
+        if (monthIdx !== -1 && dayStr) {
+            const now = new Date();
+            const year = now.getFullYear();
+            date = new Date(year, monthIdx, parseInt(dayStr));
+            // Basic logic to handle year crossover if needed (though API context usually handles "upcoming")
+            if (date.getTime() < now.getTime() - 30 * 24 * 60 * 60 * 1000) {
+                 date.setFullYear(year + 1);
             }
+            return date;
         }
+    }
+    return null;
+  };
+
+  if (event.date && event.date.toLowerCase() !== "check instagram" && event.date.toLowerCase() !== "tbd") {
+     const dateObj = parseDate(event.date);
+     if (dateObj) {
+         day = dateObj.getDate().toString();
+         month = dateObj.toLocaleString('default', { month: 'short' }).toUpperCase();
+         isDateValid = true;
+         
+         const today = new Date();
+         today.setHours(0,0,0,0);
+         dateObj.setHours(0,0,0,0);
+         const diff = dateObj.getTime() - today.getTime();
+         daysUntil = Math.ceil(diff / (1000 * 3600 * 24));
      }
   }
 
@@ -183,6 +203,42 @@ const EventCard: React.FC<{ event: EventData }> = ({ event }) => {
   } else if (event.isRealEvent) {
       borderColor = 'border-blue-200';
   }
+
+  const renderDateBoxContent = () => {
+      if (!isDateValid) {
+          return <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+      }
+
+      if (isDeadline) {
+          if (daysUntil <= 0) {
+              return (
+                  <div className="flex flex-col items-center leading-tight">
+                      <span className="text-[10px] font-bold text-red-500 uppercase">DUE</span>
+                      <span className="text-xs font-bold text-red-700">TODAY</span>
+                  </div>
+              );
+          }
+          if (daysUntil <= 30) {
+            return (
+                <div className="flex flex-col items-center leading-none">
+                    <span className="text-[9px] font-bold text-red-500 uppercase mb-0.5">DUE IN</span>
+                    <span className="text-lg font-bold text-red-700">{daysUntil}</span>
+                    <span className="text-[9px] font-bold text-red-500 uppercase mt-0.5">{daysUntil === 1 ? 'DAY' : 'DAYS'}</span>
+                </div>
+            );
+          }
+      }
+
+      return (
+        <>
+            <span className={`text-xs font-bold uppercase ${isDeadline ? 'text-red-500' : 'text-gray-500'}`}>{month}</span>
+            <span className={`text-xl font-bold ${dateTextColor}`}>{day}</span>
+        </>
+      );
+  };
+  
+  // Adjusted width for deadline box to accommodate text
+  const dateBoxClass = `flex-shrink-0 ml-4 flex flex-col items-center justify-center border rounded-lg ${isDeadline && isDateValid ? 'w-16 px-1' : 'w-14'} h-14 text-center transition-all ${dateBoxColor}`;
 
   return (
     <div className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border ${borderColor} flex flex-col h-full transform hover:-translate-y-1`}>
@@ -210,15 +266,8 @@ const EventCard: React.FC<{ event: EventData }> = ({ event }) => {
               {event.title}
             </h3>
           </div>
-          <div className={`flex-shrink-0 ml-4 flex flex-col items-center justify-center border rounded-lg w-14 h-14 text-center ${dateBoxColor}`}>
-            {isDateValid ? (
-                <>
-                    <span className={`text-xs font-bold uppercase ${isDeadline ? 'text-red-500' : 'text-gray-500'}`}>{isDeadline ? 'DUE' : month}</span>
-                    <span className={`text-xl font-bold ${dateTextColor}`}>{day}</span>
-                </>
-            ) : (
-                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            )}
+          <div className={dateBoxClass}>
+             {renderDateBoxContent()}
           </div>
         </div>
         
